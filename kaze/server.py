@@ -7,8 +7,8 @@ import time
 import uuid
 from typing import Annotated, Any
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from kaze.llm import LLM, WORKER_ERROR

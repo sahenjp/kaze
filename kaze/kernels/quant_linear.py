@@ -644,15 +644,6 @@ def gemv(x: torch.Tensor, lin: QuantLinear, tdim: int, row_off: int = 0,
     return out
 
 
-def _pad_rows(x: torch.Tensor, tdim: int) -> torch.Tensor:
-    """Zero-pad a [m, k] activation to [tdim, k] for the narrow-row (GEMV) kernels."""
-    if x.shape[0] == tdim:
-        return x
-    out = torch.zeros((tdim, x.shape[1]), dtype=x.dtype, device=x.device)
-    out[:x.shape[0]].copy_(x)
-    return out
-
-
 def gemm(a: torch.Tensor, lin: QuantLinear, block_m: int = 64, block_n: int | None = None,
          block_k: int = 64, row_off: int = 0, n_override: int | None = None,
          aq: torch.Tensor | None = None, as_: torch.Tensor | None = None,
@@ -660,18 +651,9 @@ def gemm(a: torch.Tensor, lin: QuantLinear, block_m: int = 64, block_n: int | No
     """Row offset / output-count override let one stacked tensor hold every expert."""
     m, k = a.shape
     n = n_override if n_override is not None else lin.n
-    if False and lin.kind in ("int4", "int8") and row_off == 0 and m < 64:
-        # Measured and rejected: routing narrow chunks to the split-K GEMV kernels is
-        # SLOWER end to end (16-row prefill 1931 -> 1493 tok/s), because those kernels
-        # serialize on split partials while the tiled GEMM still streams weights once.
-        bucket = 16 if m <= 16 else 32
-        xin = _pad_rows(a, bucket)
-        out = gemv(xin, lin, bucket, xq=aq, xs=as_,
-                   add_to=add_to if (add_to is not None and bucket == m) else None)
-        if bucket == m:
-            return out
-        res = out[:m]
-        return res + add_to[:m] if add_to is not None else res
+    # Measured and rejected: routing narrow chunks to the split-K GEMV kernels is
+    # SLOWER end to end (16-row prefill 1931 -> 1493 tok/s), because those kernels
+    # serialize on split partials while the tiled GEMM still streams weights once.
     # NOTE: narrow-m tiles (16,128)/(64,32) are 1.4-2.5x faster per call at m=16 (down_proj
     # 173 -> 69 us), but the end-to-end effect could not be confirmed: a 16-row prefill
     # chunk stays at ~1.8k tok/s and the 32-request burst swung 0.39..1.98 s between runs
@@ -913,11 +895,6 @@ def gemm_swiglu(a: torch.Tensor, lin: QuantLinear, nh: int,
     m, k = a.shape
     if out is not None and out.shape[0] != m:
         raise ValueError(f"out rows {out.shape[0]} != {m}")
-    if False and lin.kind in ("int4", "int8") and m < 64:
-        bucket = 16 if m <= 16 else 32
-        xin = _pad_rows(a, bucket)
-        act = gemv_swiglu(xin, lin, bucket, lin.n // 2, xq=aq, xs=as_)
-        return act[:m]
     if (lin.kind in ("int4", "int8") and m >= 64
             and (lin.kind == "int4" or W8A8_PREFILL)):
         # fused gate_up on integer tensor cores.  BLOCK_M=32 was the old ceiling: with 64

@@ -21,7 +21,7 @@ from kaze.kernels import attn as K_attn
 from kaze.kernels import norm as K_norm
 from kaze.kernels import quant_linear as K_lin
 from kaze.kernels.act import silu_mul
-from kaze.kernels.fused import qk_norm_inplace, rope_scatter
+from kaze.kernels.fused import rope_scatter
 from kaze.quant import QuantLinear
 
 
@@ -563,8 +563,6 @@ class KazeModel:
         attends to its own paged prefix, so the linear layers run once for the
         whole batch and only the (cheap) attention is per sequence.
         """
-        from kaze.kernels import attn as K_attn
-
         cfg = self.cfg
         n = ids.shape[0] if n_real is None else n_real
         hq, hkv, d = cfg.num_attention_heads, cfg.num_key_value_heads, self.head_dim
